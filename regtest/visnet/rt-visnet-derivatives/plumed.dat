@@ -1,0 +1,13 @@
+# vim:ft=plumed
+
+# 15-atom adenine (5 H, 5 C, 5 N) with a small random ViSNet model
+cv: VISNET ATOMS=1-15 TYPES=1,1,1,1,1,6,6,6,6,6,7,7,7,7,7 FILE=visnet_model.pt PROPERTY=test
+cvn: VISNET ATOMS=1-15 TYPES=1,1,1,1,1,6,6,6,6,6,7,7,7,7,7 FILE=visnet_model.pt PROPERTY=test NUMERICAL_DERIVATIVES
+
+# autograd derivatives (cv) should match the finite differences (cvn)
+DUMPDERIVATIVES ARG=cv,cvn FILE=DERIVATIVES FMT=%10.4f
+
+# biasing the CV turns its derivatives into atomic forces
+RESTRAINT ARG=cv AT=0.0 KAPPA=10.0
+
+PRINT ARG=cv,cvn FILE=COLVAR FMT=%10.6f

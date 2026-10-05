@@ -1,0 +1,20 @@
+{
+  "format": "plumed-visnet/1",
+  "hparams": {
+    "lmax": 1,
+    "num_heads": 2,
+    "num_layers": 2,
+    "hidden_channels": 16,
+    "num_rbf": 8,
+    "max_z": 10,
+    "cutoff": 5.0,
+    "reduce_op": "sum"
+  },
+  "target": {
+    "name": "test",
+    "units": "arbitrary",
+    "norm_mean": 1.0,
+    "norm_std": 2.0
+  },
+  "length_unit": "angstrom"
+}

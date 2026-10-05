@@ -73,6 +73,7 @@
 !/sizeshape
 !/ttsketch
 !/xsprint
+!/visnet
 
 # And just ignore these files
 *.xxd

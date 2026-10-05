@@ -1,0 +1,4 @@
+name: visnet
+authors: caramck
+description: use ViSNet graph neural networks trained with torch_geometric as collective variables, with autograd derivatives
+dois: ["10.1038/s41467-023-43720-2"]

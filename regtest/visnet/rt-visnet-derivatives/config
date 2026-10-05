@@ -1,0 +1,9 @@
+plumed_needs=libtorch
+plumed_modules=visnet
+type=driver
+# positions are given in A, so PLUMED (in nm) must convert them back to the model's A;
+# masses are given so that TYPES is checked against them
+arg="--plumed plumed.dat --ixyz traj.xyz --length-units A --mc masses.dat --dump-forces forces --dump-forces-fmt %10.5f --dump-full-virial"
+
+# note: the model has been previously created with create-visnet-model.py,
+# which needs torch_geometric

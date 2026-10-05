@@ -1,0 +1,3 @@
+# needed only to export trained models with export_visnet.py; PLUMED itself only links LibTorch
+torch>=2.7
+torch_geometric
