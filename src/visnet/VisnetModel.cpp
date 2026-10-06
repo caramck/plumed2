@@ -26,6 +26,8 @@ along with plumed.  If not, see <http://www.gnu.org/licenses/>.
 #include <torch/script.h>
 #include <torch/csrc/jit/runtime/graph_executor.h>
 
+#include <dlfcn.h>
+
 #include <cmath>
 #include <fstream>
 #include <map>
@@ -33,6 +35,32 @@ along with plumed.  If not, see <http://www.gnu.org/licenses/>.
 
 namespace PLMD {
 namespace visnet {
+
+// When PLUMED is called from Python (e.g. ASE) and Python's torch is loaded in the same process,
+// LibTorch uses the Python autograd engine, which refuses to run while the calling thread holds the
+// GIL. PLUMED is not linked to Python, so the GIL functions are looked up at runtime: if Python is
+// not loaded or this thread does not hold the GIL, this does nothing.
+class ReleasePythonGIL {
+  void (*restoreFrom)(void*) = nullptr;
+  void* threadState = nullptr;
+public:
+  ReleasePythonGIL() {
+    auto isInitialized=reinterpret_cast<int(*)()>(dlsym(RTLD_DEFAULT,"Py_IsInitialized"));
+    auto holdsGIL=reinterpret_cast<int(*)()>(dlsym(RTLD_DEFAULT,"PyGILState_Check"));
+    auto save=reinterpret_cast<void*(*)()>(dlsym(RTLD_DEFAULT,"PyEval_SaveThread"));
+    restoreFrom=reinterpret_cast<void(*)(void*)>(dlsym(RTLD_DEFAULT,"PyEval_RestoreThread"));
+    if(isInitialized && holdsGIL && save && restoreFrom && isInitialized() && holdsGIL()) {
+      threadState=save();
+    }
+  }
+  ~ReleasePythonGIL() {
+    if(threadState) {
+      restoreFrom(threadState);
+    }
+  }
+  ReleasePythonGIL(const ReleasePythonGIL&) = delete;
+  ReleasePythonGIL& operator=(const ReleasePythonGIL&) = delete;
+};
 
 //+PLUMEDOC COLVAR VISNET
 /*
@@ -267,6 +295,21 @@ void VisnetModel::checkTypesAgainstMasses() {
     log.printf("  WARNING: the MD code did not provide the atomic masses, TYPES cannot be checked against them\n");
     return;
   }
+  // masses lighter than hydrogen are not physical: the MD code passed invalid data, which is a
+  // different problem from a wrong TYPES (e.g. ASE's Plumed calculator passes a temporary masses
+  // array that may be freed before PLUMED reads it)
+  std::string invalid;
+  for(unsigned i=0; i<natoms; i++) {
+    const double mass=getMass(i)*getUnits().getMass();
+    if(!(mass>=0.5)) {
+      invalid+="\n  atom "+std::to_string(getAbsoluteIndex(i).serial())+" has mass "+std::to_string(mass);
+    }
+  }
+  if(!invalid.empty()) {
+    error("the MD code passed non-physical masses, so TYPES cannot be checked against them:"+invalid+
+          "\nThe masses passed to PLUMED must stay valid until the calculation is done (with ASE's Plumed calculator, keep"
+          " a reference to the masses array). VISNET does not use the masses otherwise, so NOCHECK_TYPES can also be used.");
+  }
   std::string mismatches;
   for(unsigned i=0; i<natoms; i++) {
     const double mass=getMass(i)*getUnits().getMass();
@@ -303,7 +346,12 @@ void VisnetModel::calculate() {
   // wrong gradients (e.g. after a call with all atoms at the same position), so it is disabled here.
   torch::jit::GraphOptimizerEnabledGuard noOptimization(false);
   torch::Tensor cv=model.forward({types,pos*lengthScale}).toTensor();
-  torch::Tensor grad=torch::autograd::grad({cv.sum()},{pos})[0].to(torch::kCPU,torch::kFloat64).contiguous();
+  torch::Tensor grad;
+  {
+    ReleasePythonGIL noGIL;
+    grad=torch::autograd::grad({cv.sum()},{pos})[0];
+  }
+  grad=grad.to(torch::kCPU,torch::kFloat64).contiguous();
 
   const auto g=grad.accessor<double,2>();
   for(unsigned i=0; i<natoms; i++) {
